@@ -58,7 +58,6 @@ sim$xijw <- apply(sim, 1, function(x) {
     s <- 0 
   }
   return(counts[[x[5]]] * counts[[x[6]]] * (s))
-  
 })
 # xi * xj
 sim$xij <- apply(sim, 1, function(x) {
@@ -127,4 +126,101 @@ sum(zerobois$c) / total * 100
 
 # so we can remove these from our phenotype definitions entirely
 # we can removthis is kind of a trivial result - because we could hav removed these simply by looking at what would have w = 0! 
+s4 <- anti_join(s3, zerobois, by="HP1")
+
+# the intution is that we want to keep these sort of quite dominant phenotypes, they introduce a lot of splitting factors, and this is good
+# to what extent can we remove our non-diverse phenotypes?
+# so let's have a look at the distribution of things below the mean
+
+# so what are high value?
+mean(s4$hc)
+s5 <- s4[s4$hc < mean(s4$hc),]
+
+nrow(s5)
+#5695
+
+boxplot(s5$hc)
+
+#high values have a high abundance and a low ic-weighted similarity (meaning they are maximally informative for telling diseases apart)
+# low values have low abundance and high ic-weighted similarity (to other phenotypes)
+
+s5$c <- apply(s5, 1, function(x) {
+  return(counts[[x[1]]])
+})
+op <- max(s5$hc) / 100 * 5
+sum(s5[s5$hc<op,]$c) / total * 100
+
+s6 <- anti_join(s4, s5[s5$hc<op,], by="HP1")
+
+op <- max(s5$hc) / 100 * 10
+s7 <- anti_join(s4, s5[s5$hc<op,], by="HP1")
+
+op <- max(s5$hc) / 100 * 7.5
+s8 <- anti_join(s4, s5[s5$hc<op,], by="HP1")
+
+op <- max(s5$hc) / 100 * 2.5
+s9 <- anti_join(s4, s5[s5$hc<op,], by="HP1")
+
+write_tsv(s4, "/home/slater/divsim/remove_zeros.tsv")
+write_tsv(s6, "/home/slater/divsim/remove_bottom5p_belowmean.tsv")
+write_tsv(s7, "/home/slater/divsim/remove_bottom10p_belowmean.tsv")
+write_tsv(s8, "/home/slater/divsim/remove_bottom7.5p_belowmean.tsv")
+write_tsv(s9, "/home/slater/divsim/remove_bottom2.5p_belowmean.tsv")
+
+rangey <- function(x){(x-min(x))/(max(x)-min(x))}
+library(readr)
+
+nozero <- read_csv("/home/slater/divsim/similarity/annotations.txt_dphens_merged_nozero.lst_hp.owl.lst", col_names = FALSE)
+nozero$X4 <- as.factor(nozero$X4)
+nozero$X3 <- rangey(nozero$X3)
+
+nz_roc <- AUC::roc(nozero$X3, nozero$X4)
+plot(nz_roc)
+AUC::auc(nz_roc)
+nz_oroc <- pROC::roc(as.factor(nozero$X4), nozero$X3, ci=TRUE)
+
+n5pbm <- read_csv("/home/slater/divsim/similarity/annotations.txt_dphens_merged_no5p_belowmean.lst_hp.owl.lst", col_names = FALSE)
+n5pbm$X4 <- as.factor(n5pbm$X4)
+n5pbm$X3 <- rangey(n5pbm$X3)
+
+n5_roc <- AUC::roc(n5pbm$X3, n5pbm$X4)
+n5_oroc <- pROC::roc(as.factor(n5pbm$X4), n5pbm$X3, ci=TRUE)
+plot(n5_roc)
+AUC::auc(n5_roc)
+
+n7p5pbm <- read_csv("/home/slater/divsim/similarity/annotations.txt_dphens_merged_no7.5p_belowmean.lst_hp.owl.lst", col_names = FALSE)
+n7p5pbm$X4 <- as.factor(n7p5pbm$X4)
+n7p5pbm$X3 <- rangey(n7p5pbm$X3)
+
+n7p5_roc <- AUC::roc(n7p5pbm$X3, n7p5pbm$X4)
+n7p5_oroc <- pROC::roc(as.factor(n7p5pbm$X4), n7p5pbm$X3, ci=TRUE)
+n7p5_oroc
+plot(n7p5_roc)
+AUC::auc(n7p5_roc)
+
+n10pbm <- read_csv("/home/slater/divsim/similarity/annotations.txt_dphens_merged_no10p_belowmean.lst_hp.owl.lst", col_names = FALSE)
+n10pbm$X4 <- as.factor(n10pbm$X4)
+n10pbm$X3 <- rangey(n10pbm$X3)
+
+n10_roc <- AUC::roc(n10pbm$X3, n10pbm$X4)
+n10_oroc <- pROC::roc(as.factor(n10pbm$X4), n10pbm$X3, ci=TRUE)
+plot(n10_roc)
+AUC::auc(n10_roc)
+
+n2p5pbm <- read_csv("/home/slater/divsim/similarity/annotations.txt_dphens_merged_no2.5p_belowmean.lst_hp.owl.lst", col_names = FALSE)
+n2p5pbm$X4 <- as.factor(n2p5pbm$X4)
+n2p5pbm$X3 <- rangey(n2p5pbm$X3)
+
+n2p5_roc <- AUC::roc(n2p5pbm$X3, n2p5pbm$X4)
+n2p5_oroc <- pROC::roc(as.factor(n2p5pbm$X4), n2p5pbm$X3, ci=TRUE)
+plot(n2p5_roc)
+AUC::auc(n2p5_roc)
+
+ggroc(list(`No Zero (AUC=0.8907)`=nz_oroc,
+           `Remove bottom 5% of below-mean (AUC=0.8998)`=n5_oroc,
+           `Remove bottom 7.5% of below-mean (AUC=0.8998)`=n7p5_oroc,
+           `Remove bottom 10% of below-mean (AUC=0.897)`=n10_oroc
+           )
+      , legacy.axes = T) + labs(color = "Setting")
+annotations.txt_dphens_merged_no5p_belowmean.lst_hp.owl.lst
 
