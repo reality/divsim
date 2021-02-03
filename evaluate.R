@@ -1,68 +1,80 @@
 library(stringr)
 
-# useful for sim$X3 if you're not using a normalised measure of IC or w/e
-rangey <- function(x){(x-min(x))/(max(x)-min(x))}
-
-sim <- read_csv("/home/slater/miesim/dphens/sim_no_na.lst", 
-                  col_names = FALSE)
-
-sim$X4 <- as.factor(sim$X4)
-sim$X3 <- rangey(sim$X3)
-
-ggplot(sim, aes(x=X3)) +
-  geom_histogram(binwidth=.05, colour="black", fill="white")
-
-dphens <- read_tsv("/home/slater/miesim/dphens/dphens_merged.txt", 
-                  col_names = FALSE)
-
 # Cumbersome
-counts <- new.env(hash = TRUE) 
-total <- 0
-for(a in dphens$X2) {
-  for(i in as.list(strsplit(a, ",")[[1]])) {
-    if(is.null(counts[[i]])) { 
-      counts[[i]] <- 0 
+rangey <- function(x){(x-min(x))/(max(x)-min(x))}
+load_phenotype_profile_file <- function(filepath) {
+  read_tsv(filepath, col_names = FALSE) 
+}
+load_sim_matrix_file <- function(filepath) {
+  mtx <- read_csv(filepath, col_names = FALSE)
+  mtx$X3 <- rangey(mtx$X3)
+  mtx$X4 <- as.factor(mtx$X4)
+  return(mtx)
+}
+get_roc <- function(mtx) {
+  return(pROC::roc(as.factor(mtx$X4), mtx$X3, ci=TRUE))
+}
+create_profile_counts_hash <- function(phens) {
+  counts <- new.env(hash = TRUE) 
+  total <- 0
+  for(a in phens$X2) {
+    for(i in as.list(strsplit(a, ",")[[1]])) {
+      if(is.null(counts[[i]])) { 
+        counts[[i]] <- 0 
+      }
+      total <- total + 1
+      counts[[i]] = counts[[i]] + 1
     }
-    total <- total + 1
-    counts[[i]] = counts[[i]] + 1
   }
+  return(counts)
 }
-a <- NULL
+get_simpsons_index <- function(counts) {
+ weights = data.frame(iri = character(), count = integer(), stringsAsFactors = FALSE)
 
-length(ls(counts))
+  c = 0
+  for(x in ls(counts)) {
+    n <- ((counts[[x]] / total) ^ 2)
+    c <- c + n
+    weights <- rbind(weights, data.frame(iri=x, count=n))
+  }
 
-weights = data.frame(iri = character(), count = integer(), stringsAsFactors = FALSE)
-
-c = 0
-for(x in ls(counts)) {
-  n <- ((counts[[x]] / total) ^ 2)
-  c <- c + n
-  weights <- rbind(weights, data.frame(iri=x, count=n))
+  return(1-c)
+}
+add_full_iris <- function(mtx) {
+  return(mtx %>% mutate(
+    HP1 = paste("http://purl.obolibrary.org/obo/", str_replace(X1, ':', '_'), sep=''),
+    HP2 = paste("http://purl.obolibrary.org/obo/", str_replace(X2, ':', '_'), sep='')
+  ))
+}
+calculate_diversity_values <- function(mtx, counts) {
+  apply(mtx, 1, function(x) {
+    s <- 1-as.numeric(x[3])
+    if(as.numeric(x[3]) == 0) { # special case that there's no information at all in this comparison
+      s <- 0  
+    }
+    if(identical(x[[1]], x[[2]])) { #special case that they are the same phenotype
+      s <- 0 
+    }
+    return(counts[[x[5]]] * counts[[x[6]]] * (s))
+  })
+}
+calculate_abundance_values <- function(mtx, counts) {
+  apply(mtx, 1, function(x) {
+    return(counts[[x[5]]] * counts[[x[6]]])
+  })
 }
 
-# Well, this is the simpsons diversity...
-1-c
 
-sim <- sim %>% mutate(
-  HP1 = paste("http://purl.obolibrary.org/obo/", str_replace(X1, ':', '_'), sep=''),
-  HP2 = paste("http://purl.obolibrary.org/obo/", str_replace(X2, ':', '_'), sep='')
-)
+sim <- load_sim_matrix_file("/home/slater/miesim/dphens/sim_no_na.lst")
+dphens <- load_phenotype_profile_file("/home/slater/miesim/dphens/dphens_merged.txt")
+counts <- create_profile_counts_hash(dphens)
 
-# xi * xj * wij
-sim$xijw <- apply(sim, 1, function(x) {
-  s <- 1-as.numeric(x[3])
-  if(as.numeric(x[3]) == 0) { # special case that there's no information at all in this comparison
-    s <- 0  
-  }
-  if(identical(x[[1]], x[[2]])) { #special case that they are the same phenotype
-    s <- 0 
-  }
-  return(counts[[x[5]]] * counts[[x[6]]] * (s))
-})
-# xi * xj
-sim$xij <- apply(sim, 1, function(x) {
-  return(counts[[x[5]]] * counts[[x[6]]])
-})
+get_simpsons_index(counts)
+
+sim <- add_full_iris(sim)
+
+sim$xijw <- calculate_diversity_values(sim, counts) 
+sim$xij <- calculate_abundance_values(sim, counts)
 
 #semantic diversity before the special case ...
 
@@ -167,54 +179,23 @@ write_tsv(s7, "/home/slater/divsim/remove_bottom10p_belowmean.tsv")
 write_tsv(s8, "/home/slater/divsim/remove_bottom7.5p_belowmean.tsv")
 write_tsv(s9, "/home/slater/divsim/remove_bottom2.5p_belowmean.tsv")
 
-rangey <- function(x){(x-min(x))/(max(x)-min(x))}
-library(readr)
+baseline <- load_sim_matrix_file("/home/slater/divsim/similarity/annotations.txt_dphens_baseline.txt_hp.owl.lst")
+baseline_roc <- get_roc(baseline)
 
-nozero <- read_csv("/home/slater/divsim/similarity/annotations.txt_dphens_merged_nozero.lst_hp.owl.lst", col_names = FALSE)
-nozero$X4 <- as.factor(nozero$X4)
-nozero$X3 <- rangey(nozero$X3)
+nozero <- load_sim_matrix_file("/home/slater/divsim/similarity/annotations.txt_dphens_merged_nozero.lst_hp.owl.lst")
+nozero_roc <- get_roc(nozero)
 
-nz_roc <- AUC::roc(nozero$X3, nozero$X4)
-plot(nz_roc)
-AUC::auc(nz_roc)
-nz_oroc <- pROC::roc(as.factor(nozero$X4), nozero$X3, ci=TRUE)
+n5pbm <- load_sim_matrix_file("/home/slater/divsim/similarity/annotations.txt_dphens_merged_no5p_belowmean.lst_hp.owl.lst")
+n5pbm_roc <- get_roc(n5pbm)
 
-n5pbm <- read_csv("/home/slater/divsim/similarity/annotations.txt_dphens_merged_no5p_belowmean.lst_hp.owl.lst", col_names = FALSE)
-n5pbm$X4 <- as.factor(n5pbm$X4)
-n5pbm$X3 <- rangey(n5pbm$X3)
+n10pbm <- load_sim_matrix_file("/home/slater/divsim/similarity/annotations.txt_dphens_merged_no10p_belowmean.lst_hp.owl.lst")
+n10pbm_roc <- get_roc(n10pbm)
 
-n5_roc <- AUC::roc(n5pbm$X3, n5pbm$X4)
-n5_oroc <- pROC::roc(as.factor(n5pbm$X4), n5pbm$X3, ci=TRUE)
-plot(n5_roc)
-AUC::auc(n5_roc)
+n7p5pbm <- load_sim_matrix_file("/home/slater/divsim/similarity/annotations.txt_dphens_merged_no7.5p_belowmean.lst_hp.owl.lst")
+n7p5_roc <- get_roc(n7p5pbm)
 
-n7p5pbm <- read_csv("/home/slater/divsim/similarity/annotations.txt_dphens_merged_no7.5p_belowmean.lst_hp.owl.lst", col_names = FALSE)
-n7p5pbm$X4 <- as.factor(n7p5pbm$X4)
-n7p5pbm$X3 <- rangey(n7p5pbm$X3)
-
-n7p5_roc <- AUC::roc(n7p5pbm$X3, n7p5pbm$X4)
-n7p5_oroc <- pROC::roc(as.factor(n7p5pbm$X4), n7p5pbm$X3, ci=TRUE)
-n7p5_oroc
-plot(n7p5_roc)
-AUC::auc(n7p5_roc)
-
-n10pbm <- read_csv("/home/slater/divsim/similarity/annotations.txt_dphens_merged_no10p_belowmean.lst_hp.owl.lst", col_names = FALSE)
-n10pbm$X4 <- as.factor(n10pbm$X4)
-n10pbm$X3 <- rangey(n10pbm$X3)
-
-n10_roc <- AUC::roc(n10pbm$X3, n10pbm$X4)
-n10_oroc <- pROC::roc(as.factor(n10pbm$X4), n10pbm$X3, ci=TRUE)
-plot(n10_roc)
-AUC::auc(n10_roc)
-
-n2p5pbm <- read_csv("/home/slater/divsim/similarity/annotations.txt_dphens_merged_no2.5p_belowmean.lst_hp.owl.lst", col_names = FALSE)
-n2p5pbm$X4 <- as.factor(n2p5pbm$X4)
-n2p5pbm$X3 <- rangey(n2p5pbm$X3)
-
-n2p5_roc <- AUC::roc(n2p5pbm$X3, n2p5pbm$X4)
-n2p5_oroc <- pROC::roc(as.factor(n2p5pbm$X4), n2p5pbm$X3, ci=TRUE)
-plot(n2p5_roc)
-AUC::auc(n2p5_roc)
+n2p5pbm <- load_sim_matrix_file("/home/slater/divsim/similarity/annotations.txt_dphens_merged_no2.5p_belowmean.lst_hp.owl.lst")
+n2p5pbm_roc <- get_roc(n2p5pbm)
 
 ggroc(list(`No Zero (AUC=0.8907)`=nz_oroc,
            `Remove bottom 5% of below-mean (AUC=0.8998)`=n5_oroc,
