@@ -197,10 +197,14 @@ n7p5_roc <- get_roc(n7p5pbm)
 n2p5pbm <- load_sim_matrix_file("/home/slater/divsim/similarity/annotations.txt_dphens_merged_no2.5p_belowmean.lst_hp.owl.lst")
 n2p5pbm_roc <- get_roc(n2p5pbm)
 
-ggroc(list(`No Zero (AUC=0.8907)`=nz_oroc,
-           `Remove bottom 5% of below-mean (AUC=0.8998)`=n5_oroc,
-           `Remove bottom 7.5% of below-mean (AUC=0.8998)`=n7p5_oroc,
-           `Remove bottom 10% of below-mean (AUC=0.897)`=n10_oroc
+with_training <- load_sim_matrix_file("/home/slater/divsim/similarity/annotations.txt_dphens_with_patient_training.txt_hp.owl.lst")
+with_training_roc <- get_roc(with_training)
+
+ggroc(list(
+    `LitProfileBasline (AUC=0.8734)`=baseline_roc,
+    `NoZeroSemanticDiversity (AUC=0.8907)`=nz_oroc,
+    `7.5SemanticDiversityCutoff (AUC=0.8998)`=n7p5_roc,
+     `WithPatientTraining (AUC=0.986)`=with_training_roc
            )
       , legacy.axes = T) + labs(color = "Setting")
 annotations.txt_dphens_merged_no5p_belowmean.lst_hp.owl.lst
