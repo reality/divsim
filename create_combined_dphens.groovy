@@ -1,14 +1,18 @@
 def profiles = [:]
-new File('./dphens_baseline.txt').splitEachLine('\t') {
+new File('./dphens_merged_no7.5p_belowmean.lst').splitEachLine('\t') {
+  if(!it[1]) {
+ profiles[it[0]]  = []
+  } else{
   profiles[it[0]] = it[1].tokenize(',')
+  }
 }
 
-new File('./similarity/trainpat/patient_disease_profiles.lst').splitEachLine('\t') {
+new File(args[0]).splitEachLine('\t') {
   if(!profiles.containsKey(it[0])) { profiles[it[0]] = [] }
   profiles[it[0]] += it[1].tokenize(',')
   profiles[it[0]].unique(true)
 }
 
-new File('./dphens_with_patient_training.txt').text = profiles.collect { k, v ->
+new File(args[1]).text = profiles.collect { k, v ->
   "$k\t${v.join(',')}"
 }.join('\n')

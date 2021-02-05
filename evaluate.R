@@ -55,13 +55,38 @@ calculate_diversity_values <- function(mtx, counts) {
     if(identical(x[[1]], x[[2]])) { #special case that they are the same phenotype
       s <- 0 
     }
-    return(counts[[x[5]]] * counts[[x[6]]] * (s))
+    c1 <- counts[[x[[5]]]]
+    if(is.null(c1)) {
+      c1 <- 0
+    }
+    c2 <- counts[[x[[6]]]]
+    if(is.null(c2)) {
+      c2 <- 0
+    }
+    return(c1 * c2 * (s))
   })
 }
 calculate_abundance_values <- function(mtx, counts) {
   apply(mtx, 1, function(x) {
-    return(counts[[x[5]]] * counts[[x[6]]])
+    c1 <- counts[[x[[5]]]]
+    if(is.null(c1)) {
+      c1 <- 0
+    }
+    c2 <- counts[[x[[6]]]]
+    if(is.null(c2)) {
+      c2 <- 0
+    }
+    return(c1 * c2)
   })
+}
+build_phenotype_diversity_values <- function(mtx, counts) {
+  s1 <- mtx %>% group_by(HP1) %>% dplyr::summarise(h1c = sum(xijw))
+  s2 <- mtx %>% group_by(HP2) %>% dplyr::summarise(h2c = sum(xijw))
+  s2$HP1 <- s2$HP2
+  s2$HP2 <- NULL
+  s3 <- left_join(s1, s2, by = "HP1")
+  s3 <- s3 %>% dplyr::mutate(hc = h1c+h2c) #, c = counts[[as.character(HP1)]]) urgh
+  return(s3)
 }
 
 
@@ -112,17 +137,12 @@ boxplot(sim$xijw)
 sim[sim$xijw==0,]
 
 # So we're going to build 
-use = data.frame(iri = character(), val = integer(), stringsAsFactors = FALSE)
-for(x in ls(counts)) {
-  use <- rbind(use, data.frame(iri=x, val=sum(sim[sim$HP1==x | sim$HP2 == x,]$xijw)))
-}
+#use = data.frame(iri = character(), val = integer(), stringsAsFactors = FALSE)
+#for(x in ls(counts)) {
+#  use <- rbind(use, data.frame(iri=x, val=sum(sim[sim$HP1==x | sim$HP2 == x,]$xijw)))
+#}
 
-s1 <- sim %>% group_by(HP1) %>% dplyr::summarise(h1c = sum(xijw))
-s2 <- sim %>% group_by(HP2) %>% dplyr::summarise(h2c = sum(xijw))
-s2$HP1 <- s2$HP2
-s2$HP2 <- NULL
-s3 <- left_join(s1, s2, by = "HP1")
-s3 <- s3 %>% dplyr::mutate(hc = h1c+h2c, c = counts[[HP1]])
+s3 <- build_phenotype_diversity_values(sim, counts)
 
 # so, we have a lots of big numbers, but mostly very small ones, and a LOT of upper outliers
 boxplot(s3$hc, outline=F)
@@ -203,9 +223,118 @@ with_training_roc <- get_roc(with_training)
 ggroc(list(
     `LitProfileBasline (AUC=0.8734)`=baseline_roc,
     `NoZeroSemanticDiversity (AUC=0.8907)`=nz_oroc,
-    `7.5SemanticDiversityCutoff (AUC=0.8998)`=n7p5_roc,
-     `WithPatientTraining (AUC=0.986)`=with_training_roc
+    `7.5SemanticDiversityCutoff (AUC=0.8998,A@10=)`=n7p5_roc,
+     `WithPatientTraining (AUC=0.986,A@10=0.59)`=with_training_roc
            )
       , legacy.axes = T) + labs(color = "Setting")
-annotations.txt_dphens_merged_no5p_belowmean.lst_hp.owl.lst
 
+tphens <- load_phenotype_profile_file("/home/slater/divsim/similarity/trainpat/patient_disease_profiles.lst")
+tcounts <- create_profile_counts_hash(tphens)
+
+get_simpsons_index(tcounts)
+
+tsim <- sim
+
+tsim$xijw <- calculate_diversity_values(tsim, tcounts) 
+tsim$xij <- calculate_abundance_values(tsim, tcounts)
+
+#semantic diversity before the special case ...
+ttotal <- 0
+for(o in ls(tcounts)) {
+  ttotal = ttotal + tcounts[[o]]
+}
+
+# average taxonomic diversity 
+sum(tsim$xijw) / ((ttotal * (ttotal-1)) / 2)
+
+# average taxonomic distinctness
+sum(tsim$xijw) / sum(sim$xij)
+
+ss <- build_phenotype_diversity_values(tsim, tcounts)
+
+# so, how many zeros do we have?
+zerobois <- ss[ss$hc==0,]
+zerobois$c <- apply(zerobois, 1, function(x) {
+  return(tcounts[[x[1]]])
+})
+
+ss0 <- anti_join(ss, zerobois, by="HP1")
+ssbm <- ss[ss$hc < mean(ss0$hc),]
+op <- max(ssbm$hc) / 100 * 10
+ss10 <- anti_join(ss, ssbm[ssbm$hc<op,], by="HP1")
+
+op <- max(ssbm$hc) / 100 * 1
+ss1 <- anti_join(ss, ssbm[ssbm$hc<op,], by="HP1")
+
+write_tsv(ss0, "/home/slater/divsim/similarity/trainpat/remove_zeros.tsv")
+write_tsv(ss10, "/home/slater/divsim/similarity/trainpat/remove_bottom10p_belowmean.tsv")
+write_tsv(ss1, "/home/slater/divsim/similarity/trainpat/remove_bottom1p_belowmean.tsv")
+
+pt_nz <- load_sim_matrix_file("/home/slater/divsim/similarity/annotations.txt_dphens_with_patient_training_nozeros.lst_hp.owl.lst")
+pt_nz_roc <- get_roc(pt_nz)
+nz_pt_nz <- load_sim_matrix_file("/home/slater/divsim/similarity/annotations.txt_dphens_nozero_with_patient_training_nozeros.lst_hp.owl.lst")
+nz_pt_nz_roc <- get_roc(nz_pt_nz)
+
+nz_pt_n10 <- load_sim_matrix_file("/home/slater/divsim/similarity/annotations.txt_dphens_nozero_with_patient_training_no10pbm.lst_hp.owl.lst")
+nz_pt_n10_roc <- get_roc(nz_pt_n10)
+
+pt_n10 <- load_sim_matrix_file("/home/slater/divsim/similarity/annotations.txt_dphens_with_patient_training_no10pbm.lst_hp.owl.lst")
+pt_n10_roc <- get_roc(pt_n10)
+
+nz_wpt <- load_sim_matrix_file("/home/slater/divsim/similarity/annotations.txt_dphens_nozero_with_patient_training.lst_hp.owl.lst")
+nz_wpt_roc <- get_roc(nz_wpt)
+nz_wpt_roc
+
+nz_wpt_7p5 <- load_sim_matrix_file("/home/slater/divsim/similarity/annotations.txt_dphens_remove7p5bm_with_patient_training.lst_hp.owl.lst")
+get_roc(nz_wpt_7p5)
+
+### calculate our similarity here ...
+
+phenotype_similarity <- load_sim_matrix_file("/home/slater/miesim/dphens/sim_all_no_na.lst")
+phenotype_similarity <- add_full_iris(phenotype_similarity)
+
+disease_phenotypes <- load_phenotype_profile_file("/home/slater/divsim/dphens_baseline.txt")
+disease_profile_phenotype_counts <- create_profile_counts_hash(disease_phenotypes)
+
+patient_phenotypes <- load_phenotype_profile_file("/home/slater/divsim/similarity/annotations.txt")
+patient_profile_phenotype_total <- 0
+patient_profile_phenotype_counts <- new.env(hash = TRUE) 
+for(a in patient_phenotypes$X2) {
+  if(is.null(patient_profile_phenotype_counts[[a]])) { 
+    patient_profile_phenotype_counts[[a]] <- 0 
+  }
+  patient_profile_phenotype_total <- patient_profile_phenotype_total + 1
+  patient_profile_phenotype_counts[[a]] = patient_profile_phenotype_counts[[a]] + 1
+}
+
+disease_profile_phenotype_total <- 0
+for(a in ls(disease_profile_phenotype_counts)) {
+  disease_profile_phenotype_total = disease_profile_phenotype_total + disease_profile_phenotype_counts[[a]] 
+}
+
+phenotype_matrix <- expand.grid(ls(patient_profile_phenotype_counts), ls(disease_profile_phenotype_counts))
+pm_with_weights <- inner_join(phenotype_matrix, phenotype_similarity, by=c("Var1" = "HP1", "Var2" = "HP2"))
+pm_with_weights <- rbind(pm_with_weights,
+             inner_join(phenotype_matrix, phenotype_similarity, by=c("Var1" = "HP2", "Var2" = "HP1")))
+
+
+pm_with_weights$score <- apply(pm_with_weights, 1, function(r) {
+    
+})
+
+pm_with_weights$similarity <- apply(pm_with_weights, 1, function(pair) {
+  patient_phenotype <- pair[[1]]
+  disease_phenotype <- pair[[2]]
+  relatedness_weight <- as.numeric(pair[[5]])
+  return((1 - (
+    (patient_profile_phenotype_counts[[patient_phenotype]] / patient_profile_phenotype_total) 
+    * 
+    (disease_profile_phenotype_counts[[disease_phenotype]] / disease_profile_phenotype_total)
+      )) * relatedness_weight)
+})
+
+comparisons <- expand.grid(unique(patient_phenotypes$X1), disease_phenotypes$X1)
+comparisons$similarity <- apply(comparisons, 1, function(r) {
+  score <- 
+  return(score)
+})
