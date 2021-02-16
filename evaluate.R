@@ -353,3 +353,72 @@ ggroc(list(
     `LitProfile-DivSim (AUC=0.881,A@10=0.058)`=new_test_roc
            )
       , legacy.axes = T) + labs(color = "Setting")
+
+
+phenotype_similarity <- load_sim_matrix_file("/home/slater/divsim/ancestors/sim_all_no_na_with_lcs.lst")
+phenotype_similarity <- add_full_iris(phenotype_similarity)
+disease_phenotypes <- load_phenotype_profile_file("/home/slater/divsim/dphens_with_patient_training.txt")
+disease_profile_phenotype_counts <- create_profile_counts_hash(disease_phenotypes)
+
+patient_phenotypes <- load_phenotype_profile_file("/home/slater/divsim/similarity/annotations.txt")
+patient_profile_phenotype_total <- 0
+patient_profile_phenotype_counts <- new.env(hash = TRUE) 
+for(a in patient_phenotypes$X2) {
+  if(is.null(patient_profile_phenotype_counts[[a]])) { 
+    patient_profile_phenotype_counts[[a]] <- 0 
+  }
+  patient_profile_phenotype_total <- patient_profile_phenotype_total + 1
+  patient_profile_phenotype_counts[[a]] = patient_profile_phenotype_counts[[a]] + 1
+}
+disease_profile_phenotype_total <- 0
+for(a in ls(disease_profile_phenotype_counts)) {
+  disease_profile_phenotype_total = disease_profile_phenotype_total + disease_profile_phenotype_counts[[a]] 
+}
+
+phenotype_matrix <- expand.grid(ls(patient_profile_phenotype_counts), ls(disease_profile_phenotype_counts))
+pm_with_weights <- inner_join(phenotype_matrix, phenotype_similarity, by=c("Var1" = "HP1", "Var2" = "HP2"))
+pm_with_weights <- rbind(pm_with_weights,
+             inner_join(phenotype_matrix, phenotype_similarity, by=c("Var1" = "HP2", "Var2" = "HP1")))
+
+pm_with_weights$similarity_respart <- apply(pm_with_weights, 1, function(pair) {
+  patient_phenotype <- pair[[1]]
+  disease_phenotype <- pair[[2]]
+  relatedness_weight <- as.numeric(pair[[5]])
+  lcs <- pair[[7]]
+  
+  return(
+    (-log((patient_profile_phenotype_counts[[patient_phenotype]] / patient_profile_phenotype_total)))
+    *
+    (-log((disease_profile_phenotype_counts[[disease_phenotype]] / disease_profile_phenotype_total)))
+    * 
+    relatedness_weight)
+})
+pm_with_weights$similarity_linpart <- apply(pm_with_weights, 1, function(pair) {
+  patient_phenotype <- pair[[1]]
+  disease_phenotype <- pair[[2]]
+  relatedness_weight <- as.numeric(pair[[5]])
+  lcs <- pair[[7]]
+  
+  return(patient_profile_phenotype_counts[[lcs]])
+  
+  return(
+    ((2*((-log((patient_profile_phenotype_counts[[lcs]] / patient_profile_phenotype_total)))
+    *
+    (-log((disease_profile_phenotype_counts[[lcs]] / disease_profile_phenotype_total)))))
+    
+    /
+      
+    (-log(patient_profile_phenotype_counts[[patient_phenotype]] / patient_profile_phenotype_total)
+    +
+    -log(disease_profile_phenotype_counts[[disease_phenotype]] / disease_profile_phenotype_total)
+    ))  
+    * 
+    relatedness_weight)
+})
+
+#comparisons <- expand.grid(unique(patient_phenotypes$X1), disease_phenotypes$X1)
+#comparisons$similarity <- apply(comparisons, 1, function(r) {
+#  score <- 
+#  return(score)
+#})
+write_tsv(pm_with_weights, "/home/slater/divsim/similarity/pre_weights.tsv")

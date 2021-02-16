@@ -44,6 +44,7 @@ def rewriteTermID = { l ->
 }
 
 def class_parents = [:]
+def lcs_instances = [:]
 new File('/home/slater/miesim/dphens/sim_all_no_na.lst').splitEachLine(',') {
   def c1 = rewriteTermID(it[0])
   def c2 = rewriteTermID(it[1])
@@ -69,6 +70,15 @@ new File('/home/slater/miesim/dphens/sim_all_no_na.lst').splitEachLine(',') {
     i++
   }
 
+  lcs_instances[lcs] = 0
+
   println "${it.join(',')},$lcs"
 }
 
+class_parents.each { k, v ->
+  v.flatten().each { p ->
+    if(lcs_instances.containsKey(p)) { lcs_instances[p]++ }
+  }
+}
+
+new File('lcs_instances.txt').text = lcs_instances.collect { k, v -> "$k\t$v" }.join('\n')
