@@ -293,7 +293,7 @@ get_roc(nz_wpt_7p5)
 phenotype_similarity <- load_sim_matrix_file("/home/slater/miesim/dphens/sim_all_no_na.lst")
 phenotype_similarity <- add_full_iris(phenotype_similarity)
 
-disease_phenotypes <- load_phenotype_profile_file("/home/slater/divsim/dphens_baseline.txt")
+disease_phenotypes <- load_phenotype_profile_file("/home/slater/divsim/dphens_with_patient_training.txt")
 disease_profile_phenotype_counts <- create_profile_counts_hash(disease_phenotypes)
 
 patient_phenotypes <- load_phenotype_profile_file("/home/slater/divsim/similarity/annotations.txt")
@@ -307,6 +307,8 @@ for(a in patient_phenotypes$X2) {
   patient_profile_phenotype_counts[[a]] = patient_profile_phenotype_counts[[a]] + 1
 }
 
+write_tsv(as.data.frame(patient_profile_phenotype_counts), "/home/slater/divsim/ancestors/counts.tsv")
+
 disease_profile_phenotype_total <- 0
 for(a in ls(disease_profile_phenotype_counts)) {
   disease_profile_phenotype_total = disease_profile_phenotype_total + disease_profile_phenotype_counts[[a]] 
@@ -317,24 +319,37 @@ pm_with_weights <- inner_join(phenotype_matrix, phenotype_similarity, by=c("Var1
 pm_with_weights <- rbind(pm_with_weights,
              inner_join(phenotype_matrix, phenotype_similarity, by=c("Var1" = "HP2", "Var2" = "HP1")))
 
-
-pm_with_weights$score <- apply(pm_with_weights, 1, function(r) {
-    
-})
-
 pm_with_weights$similarity <- apply(pm_with_weights, 1, function(pair) {
   patient_phenotype <- pair[[1]]
   disease_phenotype <- pair[[2]]
   relatedness_weight <- as.numeric(pair[[5]])
-  return((1 - (
-    (patient_profile_phenotype_counts[[patient_phenotype]] / patient_profile_phenotype_total) 
-    * 
-    (disease_profile_phenotype_counts[[disease_phenotype]] / disease_profile_phenotype_total)
-      )) * relatedness_weight)
+  return((-log(
+    (patient_profile_phenotype_counts[[patient_phenotype]] / patient_profile_phenotype_total)))
+  #  (disease_profile_phenotype_counts[[disease_phenotype]] / disease_profile_phenotype_total)))
+       * relatedness_weight)
+  
+  # add special case where u make it 1 if it's literally the same?
+  # see if you can try X4, the rank of similarity for that phenotype, rather than globally?
 })
 
-comparisons <- expand.grid(unique(patient_phenotypes$X1), disease_phenotypes$X1)
-comparisons$similarity <- apply(comparisons, 1, function(r) {
-  score <- 
-  return(score)
-})
+#comparisons <- expand.grid(unique(patient_phenotypes$X1), disease_phenotypes$X1)
+#comparisons$similarity <- apply(comparisons, 1, function(r) {
+#  score <- 
+#  return(score)
+#})
+write_tsv(pm_with_weights, "/home/slater/divsim/similarity/pre_weights.tsv")
+
+new_test_res <- load_sim_matrix_file("/home/slater/divsim/similarity/new_test_matrix.lst")
+new_test_roc <- pROC::roc(as.factor(new_test_res$X5), as.numeric(new_test_res$X4), ci=TRUE)
+
+new_test_r00 <- load_sim_matrix_file("/home/slater/divsim/similarity/new_test_matrix_with_training.lst")
+new_test_roo_roc <- pROC::roc(as.factor(new_test_r00$X5), as.numeric(new_test_r00$X4), ci=TRUE)
+new_test_roo_roc
+
+get_roc(new_test_res)
+
+ggroc(list(
+    `LitProfile-Resnik (AUC=0.8734,A@10=0.038)`=baseline_roc,
+    `LitProfile-DivSim (AUC=0.881,A@10=0.058)`=new_test_roc
+           )
+      , legacy.axes = T) + labs(color = "Setting")
